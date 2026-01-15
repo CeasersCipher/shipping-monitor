@@ -6,9 +6,16 @@ from scrapers.ups import UPSScraper
 from scrapers.fedex import FedExScraper
 from scrapers.dhl import DHLScraper
 
-# Check for API keys (env vars or Streamlit secrets)
-def _get_secret(key: str) -> str:
-    """Get secret from env var or Streamlit secrets."""
+SCRAPERS = {
+    "usps": USPSScraper,
+    "ups": UPSScraper,
+    "fedex": FedExScraper,
+    "dhl": DHLScraper,
+}
+
+
+def get_api_key(key: str) -> str:
+    """Get API key from env var or Streamlit secrets (lazy loaded)."""
     # First check environment variable
     val = os.environ.get(key, "")
     if val:
@@ -16,19 +23,11 @@ def _get_secret(key: str) -> str:
     # Then check Streamlit secrets (for cloud deployment)
     try:
         import streamlit as st
-        return st.secrets.get(key, "")
-    except:
-        return ""
-
-EASYPOST_API_KEY = _get_secret("EASYPOST_API_KEY")
-SHIPPO_API_KEY = _get_secret("SHIPPO_API_KEY")
-
-SCRAPERS = {
-    "usps": USPSScraper,
-    "ups": UPSScraper,
-    "fedex": FedExScraper,
-    "dhl": DHLScraper,
-}
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return ""
 
 
 def get_scraper(carrier: str) -> BaseScraper:
@@ -46,50 +45,55 @@ def get_all_scrapers():
 
 def use_live_rates() -> bool:
     """Check if any live rate API is configured."""
-    return bool(EASYPOST_API_KEY or SHIPPO_API_KEY)
+    return bool(get_api_key("EASYPOST_API_KEY") or get_api_key("SHIPPO_API_KEY"))
 
 
 def use_easypost() -> bool:
     """Check if EasyPost API is configured."""
-    return bool(EASYPOST_API_KEY)
+    return bool(get_api_key("EASYPOST_API_KEY"))
 
 
 def use_shippo() -> bool:
     """Check if Shippo API is configured."""
-    return bool(SHIPPO_API_KEY)
+    return bool(get_api_key("SHIPPO_API_KEY"))
 
 
 def get_live_rate_provider() -> str:
     """Get which live rate provider is active."""
-    if EASYPOST_API_KEY:
+    if get_api_key("EASYPOST_API_KEY"):
         return "EasyPost"
-    if SHIPPO_API_KEY:
+    if get_api_key("SHIPPO_API_KEY"):
         return "Shippo"
     return None
 
 
 def get_live_scraper():
     """Get the configured live rate scraper (EasyPost or Shippo)."""
-    if EASYPOST_API_KEY:
+    easypost_key = get_api_key("EASYPOST_API_KEY")
+    if easypost_key:
         from scrapers.easypost_scraper import EasyPostScraper
-        return EasyPostScraper(EASYPOST_API_KEY)
-    if SHIPPO_API_KEY:
+        return EasyPostScraper(easypost_key)
+
+    shippo_key = get_api_key("SHIPPO_API_KEY")
+    if shippo_key:
         from scrapers.shippo_scraper import ShippoScraper
-        return ShippoScraper(SHIPPO_API_KEY)
+        return ShippoScraper(shippo_key)
     return None
 
 
 def get_easypost_scraper():
     """Get EasyPost scraper if configured."""
-    if use_easypost():
+    key = get_api_key("EASYPOST_API_KEY")
+    if key:
         from scrapers.easypost_scraper import EasyPostScraper
-        return EasyPostScraper(EASYPOST_API_KEY)
+        return EasyPostScraper(key)
     return None
 
 
 def get_shippo_scraper():
     """Get Shippo scraper if configured."""
-    if use_shippo():
+    key = get_api_key("SHIPPO_API_KEY")
+    if key:
         from scrapers.shippo_scraper import ShippoScraper
-        return ShippoScraper(SHIPPO_API_KEY)
+        return ShippoScraper(key)
     return None
