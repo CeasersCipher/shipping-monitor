@@ -7,3 +7,4 @@ plotly>=5.18.0
 pandas>=2.0.0
 streamlit-autorefresh>=1.0.0
 lxml>=5.0.0
+shippo>=5.0.0
