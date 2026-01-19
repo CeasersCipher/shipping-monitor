@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 import logging
 
-import shippo
+import requests
 
 from config import Package, Route, PACKAGES, ROUTES
 from models import Rate, ScrapeResult
@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 # Get API key from environment
 SHIPPO_API_KEY = os.environ.get("SHIPPO_API_KEY", "")
 
+SHIPPO_API_URL = "https://api.goshippo.com/shipments/"
+
 
 class ShippoScraper:
     """Scraper that uses Shippo API for real carrier rates."""
@@ -22,15 +24,12 @@ class ShippoScraper:
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or SHIPPO_API_KEY
-        if self.api_key:
-            self.client = shippo.Shippo(api_key_header=self.api_key)
-        else:
-            self.client = None
+        if not self.api_key:
             logger.warning("No Shippo API key configured")
 
     def get_rates(self, package: Package, route: Route) -> List[Rate]:
         """Get rates from all carriers via Shippo."""
-        if not self.client:
+        if not self.api_key:
             logger.error("Shippo client not initialized - no API key")
             return []
 
@@ -70,29 +69,40 @@ class ShippoScraper:
                 "mass_unit": "lb",
             }
 
-            # Create shipment to get rates
-            shipment = self.client.shipments.create(
-                address_from=address_from,
-                address_to=address_to,
-                parcels=[parcel],
-                async_=False,
-            )
+            # Create shipment to get rates via REST API
+            headers = {
+                "Authorization": f"ShippoToken {self.api_key}",
+                "Content-Type": "application/json",
+            }
+
+            payload = {
+                "address_from": address_from,
+                "address_to": address_to,
+                "parcels": [parcel],
+                "async": False,
+            }
+
+            response = requests.post(SHIPPO_API_URL, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            shipment = response.json()
 
             rates = []
-            for rate in shipment.rates:
-                carrier = self._normalize_carrier(rate.provider)
+            for rate in shipment.get("rates", []):
+                carrier = self._normalize_carrier(rate.get("provider", ""))
+                servicelevel = rate.get("servicelevel", {})
+                service_name = servicelevel.get("name") if servicelevel else rate.get("servicelevel_token", "")
 
                 rates.append(Rate(
                     carrier=carrier,
-                    service=rate.servicelevel.name if rate.servicelevel else rate.servicelevel_token,
+                    service=service_name,
                     package_name=package.name,
                     origin=route.origin_zip,
                     origin_country=route.origin_country,
                     destination=route.destination_zip,
                     destination_country=route.destination_country,
-                    price=float(rate.amount),
-                    currency=rate.currency,
-                    delivery_days=rate.estimated_days,
+                    price=float(rate.get("amount", 0)),
+                    currency=rate.get("currency", "USD"),
+                    delivery_days=rate.get("estimated_days"),
                 ))
 
             return rates
